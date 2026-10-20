@@ -170,6 +170,7 @@ def main():
 
     # agenda
     if E("ICAL_URL"):
+        ical_premier = premier or not etat.get("ical")
         try:
             evts = lire_ical(E("ICAL_URL"))
             for e in evts:
@@ -177,7 +178,7 @@ def main():
                     continue
                 cle = "rdv|" + e["uid"]
                 if est_reservation(e) and cle not in vus:
-                    if premier:
+                    if ical_premier:
                         vus.add(cle)
                     elif pousser(f"Appel réservé : {', '.join(sorted(e['externes'])) or e['titre']}\n{hh(e['debut'])}\n{e['titre']}"):
                         vus.add(cle)
@@ -207,7 +208,7 @@ def main():
         except Exception as ex:
             print("Mercury illisible :", type(ex).__name__)
 
-    json.dump({"vus": sorted(vus)[-500:], "rappels": sorted(rappels)[-500:]}, open(ETAT, "w", encoding="utf-8"))
+    json.dump({"vus": sorted(vus)[-500:], "rappels": sorted(rappels)[-500:], "ical": bool(E("ICAL_URL")) or bool(etat.get("ical"))}, open(ETAT, "w", encoding="utf-8"))
     print("OK", "(premier passage, rien alerté)" if premier else "")
 
 
