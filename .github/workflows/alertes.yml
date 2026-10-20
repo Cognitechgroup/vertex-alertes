@@ -30,6 +30,9 @@ jobs:
           MES_ADRESSES: ${{ secrets.MES_ADRESSES }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           MERCURY_TOKEN: ${{ secrets.MERCURY_TOKEN }}
+          WA_CLOUD_TOKEN: ${{ secrets.WA_CLOUD_TOKEN }}
+          WA_CLOUD_PHONE_ID: ${{ secrets.WA_CLOUD_PHONE_ID }}
+          WA_TO: ${{ secrets.WA_TO }}
           TG_NOTIF_TOKEN: ${{ secrets.TG_NOTIF_TOKEN }}
           TG_NOTIF_CHAT: ${{ secrets.TG_NOTIF_CHAT }}
           WA_NOTIF_PHONE: ${{ secrets.WA_NOTIF_PHONE }}

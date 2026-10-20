@@ -45,6 +45,16 @@ def pousser(msg, urgent=False):
             ok = (bool(re.search(r"queued|sent", rep, re.I)) and not re.search(r"error|invalid", rep, re.I)) or ok
         except Exception as ex:
             print("whatsapp KO", type(ex).__name__)
+    if E("WA_CLOUD_TOKEN") and E("WA_CLOUD_PHONE_ID") and E("WA_TO"):
+        try:
+            corps = {"messaging_product": "whatsapp", "to": E("WA_TO"), "type": "template",
+                     "template": {"name": E("WA_TEMPLATE") or "alerte_vertex", "language": {"code": E("WA_TEMPLATE_LANG") or "fr"},
+                     "components": [{"type": "body", "parameters": [{"type": "text", "text": " | ".join(msg.splitlines())[:900]}]}]}}
+            req = urllib.request.Request(f"https://graph.facebook.com/v21.0/{E('WA_CLOUD_PHONE_ID')}/messages", json.dumps(corps).encode(),
+                                         {"Authorization": "Bearer " + E("WA_CLOUD_TOKEN"), "Content-Type": "application/json"})
+            ok = ('"messages"' in urllib.request.urlopen(req, timeout=30).read().decode()) or ok
+        except Exception as ex:
+            print("whatsapp Meta KO", type(ex).__name__, getattr(ex, "code", ""))
     return ok
 
 
@@ -91,6 +101,34 @@ def trouver(champs, *mots):
         if any(w in k for w in mots) and v:
             return v
     return "non renseigné"
+
+
+# ---------- paiements Stripe et contrats signés (mails reçus sur la boîte pro) ----------
+MONTANT = re.compile(r"\d[\d   .,]*\s?(?:€|\$|EUR|USD)|(?:€|\$)\s?\d[\d.,]*")
+SUJET_CONTRAT = re.compile(r"^Contrat(?: conciergerie)? accept[ée] en ligne : (.+)$", re.S)
+
+
+def mails_evenements():
+    """[(id, texte)] : paiements Stripe reçus (avec montant) et contrats acceptés en ligne, 3 derniers jours."""
+    M = imaplib.IMAP4_SSL(E("IMAP_HOST") or E("SMTP_HOST"), int(E("IMAP_PORT") or 993), timeout=30)
+    M.login(E("SMTP_USER"), E("SMTP_PASS"))
+    M.select("INBOX", readonly=True)
+    depuis = (dt.date.today() - dt.timedelta(days=3)).strftime("%d-%b-%Y")
+    out = []
+    for crit in (("FROM", "stripe.com"), ("SUBJECT", '"accept"')):
+        _, d = M.search(None, "SINCE", depuis, *crit)
+        for num in d[0].split():
+            _, data = M.fetch(num, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM MESSAGE-ID)])")
+            msg = email.message_from_bytes(data[0][1])
+            sujet = " ".join(str(make_header(decode_header(msg.get("Subject", "")))).split())
+            mid = msg.get("Message-ID", sujet + str(num))
+            c = SUJET_CONTRAT.match(sujet)
+            if c and not TEST.search(c.group(1)):
+                out.append((mid, "Contrat signé : " + c.group(1).strip() + "\nPaiement Stripe attendu."))
+            elif "stripe.com" in msg.get("From", "").lower() and MONTANT.search(sujet) and re.search(r"re[çc]u|received|succe|r[ée]ussi|paid|pay[ée]", sujet, re.I):
+                out.append((mid, "PAIEMENT REÇU : " + MONTANT.search(sujet).group(0).strip() + "\n" + sujet))
+    M.logout()
+    return out
 
 
 # ---------- agenda ----------
@@ -168,6 +206,18 @@ def main():
     except Exception as ex:
         print("boîte mail illisible :", type(ex).__name__)
 
+    # paiements Stripe + contrats signés
+    try:
+        for mid, txt in mails_evenements():
+            if mid in vus:
+                continue
+            if premier or not etat.get("evt"):
+                vus.add(mid)
+            elif pousser(txt, urgent=txt.startswith("PAIEMENT")):
+                vus.add(mid)
+    except Exception as ex:
+        print("mails paiement/contrat illisibles :", type(ex).__name__)
+
     # agenda
     if E("ICAL_URL"):
         ical_premier = premier or not etat.get("ical")
@@ -209,7 +259,7 @@ def main():
         except Exception as ex:
             print("Mercury illisible :", type(ex).__name__)
 
-    json.dump({"vus": sorted(vus)[-500:], "rappels": sorted(rappels)[-500:], "ical": bool(E("ICAL_URL")) or bool(etat.get("ical")), "mercury": bool(E("MERCURY_TOKEN")) or bool(etat.get("mercury"))}, open(ETAT, "w", encoding="utf-8"))
+    json.dump({"vus": sorted(vus)[-500:], "rappels": sorted(rappels)[-500:], "ical": bool(E("ICAL_URL")) or bool(etat.get("ical")), "mercury": bool(E("MERCURY_TOKEN")) or bool(etat.get("mercury")), "evt": True}, open(ETAT, "w", encoding="utf-8"))
     print("OK", "(premier passage, rien alerté)" if premier else "")
 
 
