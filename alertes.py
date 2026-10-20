@@ -196,19 +196,20 @@ def main():
 
     # virements reçus
     if E("MERCURY_TOKEN"):
+        mercury_premier = premier or not etat.get("mercury")
         try:
             for tid, montant, qui, statut in entrees_mercury():
                 cle = "vir|" + tid
                 if cle in vus:
                     continue
-                if premier:
+                if mercury_premier:
                     vus.add(cle)
                 elif pousser(f"Virement reçu : {montant:,.2f} $ de {qui}\nCompte pro Mercury ({statut or 'reçu'})"):
                     vus.add(cle)
         except Exception as ex:
             print("Mercury illisible :", type(ex).__name__)
 
-    json.dump({"vus": sorted(vus)[-500:], "rappels": sorted(rappels)[-500:], "ical": bool(E("ICAL_URL")) or bool(etat.get("ical"))}, open(ETAT, "w", encoding="utf-8"))
+    json.dump({"vus": sorted(vus)[-500:], "rappels": sorted(rappels)[-500:], "ical": bool(E("ICAL_URL")) or bool(etat.get("ical")), "mercury": bool(E("MERCURY_TOKEN")) or bool(etat.get("mercury"))}, open(ETAT, "w", encoding="utf-8"))
     print("OK", "(premier passage, rien alerté)" if premier else "")
 
 
