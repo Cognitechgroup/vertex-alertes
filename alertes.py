@@ -6,7 +6,7 @@
 # 3. Rappels : 1 h puis 15 min avant chaque appel (« Kickoff » ou « X Vertex Acquisition »), le 2e en priorité urgente.
 # Mémoire : state.json (restauré par le cache GitHub). Premier passage = on enregistre sans alerter (jamais de spam de l'historique).
 # Variables : MES_ADRESSES (adresses d'Ahmed, séparées par des virgules), MERCURY_TOKEN (jeton lecture seule), SMTP_HOST, SMTP_USER, SMTP_PASS, (IMAP_HOST, IMAP_PORT), ICAL_URL, NTFY_TOPIC, (TG_NOTIF_TOKEN, TG_NOTIF_CHAT), (WA_NOTIF_PHONE, WA_NOTIF_KEY).
-import datetime as dt, email, imaplib, json, os, re, sys, urllib.parse, urllib.request
+import datetime as dt, email, imaplib, json, os, re, sys, unicodedata, urllib.parse, urllib.request
 from email.header import decode_header, make_header
 from zoneinfo import ZoneInfo
 
@@ -24,7 +24,7 @@ def pousser(msg, urgent=False):
     topic = E("NTFY_TOPIC")
     if topic:
         try:
-            titre = msg.splitlines()[0].encode("ascii", "ignore").decode() or "Alerte Vertex"
+            titre = unicodedata.normalize("NFKD", msg.splitlines()[0]).encode("ascii", "ignore").decode().strip() or "Alerte Vertex"
             req = urllib.request.Request("https://ntfy.sh/" + topic, data=msg.encode("utf-8"),
                                          headers={"Title": titre, "Priority": "urgent" if urgent else "high",
                                                   "Tags": "rotating_light" if urgent else "bell"})
@@ -47,9 +47,15 @@ def pousser(msg, urgent=False):
             print("whatsapp KO", type(ex).__name__)
     if E("WA_CLOUD_TOKEN") and E("WA_CLOUD_PHONE_ID") and E("WA_TO"):
         try:
+            modele = E("WA_TEMPLATE") or "alerte_vertex"
+            lignes = [l.strip() for l in msg.splitlines() if l.strip()]
+            if modele == "alerte_vertex":
+                champs = [" | ".join(lignes)[:900]]
+            else:
+                champs = [lignes[0][:200], (lignes[1] if len(lignes) > 1 else "-")[:300], (" / ".join(lignes[2:]) or "-")[:600]]
             corps = {"messaging_product": "whatsapp", "to": E("WA_TO"), "type": "template",
-                     "template": {"name": E("WA_TEMPLATE") or "alerte_vertex", "language": {"code": E("WA_TEMPLATE_LANG") or "fr"},
-                     "components": [{"type": "body", "parameters": [{"type": "text", "text": " | ".join(msg.splitlines())[:900]}]}]}}
+                     "template": {"name": modele, "language": {"code": E("WA_TEMPLATE_LANG") or "fr"},
+                     "components": [{"type": "body", "parameters": [{"type": "text", "text": c} for c in champs]}]}}
             req = urllib.request.Request(f"https://graph.facebook.com/v21.0/{E('WA_CLOUD_PHONE_ID')}/messages", json.dumps(corps).encode(),
                                          {"Authorization": "Bearer " + E("WA_CLOUD_TOKEN"), "Content-Type": "application/json"})
             ok = ('"messages"' in urllib.request.urlopen(req, timeout=30).read().decode()) or ok
@@ -105,6 +111,7 @@ def trouver(champs, *mots):
 
 # ---------- paiements Stripe et contrats signés (mails reçus sur la boîte pro) ----------
 MONTANT = re.compile(r"\d[\d   .,]*\s?(?:€|\$|EUR|USD)|(?:€|\$)\s?\d[\d.,]*")
+PAIEMENT = re.compile(r"^Paiement de (.+?) effectu[ée] par (.+?) en faveur", re.S)
 SUJET_CONTRAT = re.compile(r"^Contrat(?: conciergerie)? accept[ée] en ligne : (.+)$", re.S)
 
 
@@ -124,9 +131,10 @@ def mails_evenements():
             mid = msg.get("Message-ID", sujet + str(num))
             c = SUJET_CONTRAT.match(sujet)
             if c and not TEST.search(c.group(1)):
-                out.append((mid, "Contrat signé : " + c.group(1).strip() + "\nPaiement Stripe attendu."))
+                out.append((mid, "✅ Contrat signé\n" + c.group(1).strip() + "\nPaiement Stripe attendu"))
             elif "stripe.com" in msg.get("From", "").lower() and MONTANT.search(sujet) and re.search(r"re[çc]u|received|succe|r[ée]ussi|paid|pay[ée]", sujet, re.I):
-                out.append((mid, "PAIEMENT REÇU : " + MONTANT.search(sujet).group(0).strip() + "\n" + sujet))
+                pay = PAIEMENT.match(sujet)
+                out.append((mid, "💰 Paiement reçu\n" + (f"{pay.group(1).strip()} de {pay.group(2).strip()}" if pay else MONTANT.search(sujet).group(0).strip()) + "\n" + sujet))
     M.logout()
     return out
 
@@ -200,7 +208,7 @@ def main():
                 vus.add(mid)
                 continue
             niche = "Conciergerie" if form == "onboarding-conciergerie" else "Clinique"
-            txt = f"Onboarding fini : {nom} ({niche})\nTél : {trouver(champs, 'phone', 'téléphone', 'telephone', 'whatsapp', 'mobile')}\nEmail : {trouver(champs, 'email', 'mail')}\nRéponses dans la boîte pro."
+            txt = f"📋 Onboarding client fini\n{nom} ({niche})\nTél : {trouver(champs, 'phone', 'téléphone', 'telephone', 'whatsapp', 'mobile')}\nEmail : {trouver(champs, 'email', 'mail')}\nRéponses dans la boîte pro"
             if pousser(txt):
                 vus.add(mid)
     except Exception as ex:
@@ -213,7 +221,7 @@ def main():
                 continue
             if premier or not etat.get("evt"):
                 vus.add(mid)
-            elif pousser(txt, urgent=txt.startswith("PAIEMENT")):
+            elif pousser(txt, urgent=txt.startswith("💰")):
                 vus.add(mid)
     except Exception as ex:
         print("mails paiement/contrat illisibles :", type(ex).__name__)
@@ -230,7 +238,7 @@ def main():
                 if est_reservation(e) and cle not in vus:
                     if ical_premier:
                         vus.add(cle)
-                    elif pousser(f"Appel réservé : {', '.join(sorted(e['externes'])) or e['titre']}\n{hh(e['debut'])}\n{e['titre']}"):
+                    elif pousser(f"📞 Appel réservé\n{', '.join(sorted(e['externes'])) or e['titre']}\n{hh(e['debut'])} / {e['titre']}"):
                         vus.add(cle)
                 if not est_appel(e):
                     continue
@@ -238,7 +246,7 @@ def main():
                 for minutes, lo, hi, urgent in ((60, 40, 80, False), (15, 2, 22, True)):
                     k = f"{e['uid']}|{minutes}"
                     if lo <= reste <= hi and k not in rappels:
-                        txt = (f"APPEL DANS {minutes} MIN : {e['titre']}\n{hh(e['debut'])}" if urgent else f"Appel dans 1 h : {e['titre']}\n{hh(e['debut'])}")
+                        txt = (f"⏰ Appel dans {minutes} min\n{e['titre']}\n{hh(e['debut'])}" if urgent else f"⏰ Appel dans 1 h\n{e['titre']}\n{hh(e['debut'])}")
                         if pousser(txt, urgent):
                             rappels.add(k)
         except Exception as ex:
@@ -254,7 +262,7 @@ def main():
                     continue
                 if mercury_premier:
                     vus.add(cle)
-                elif pousser(f"Virement reçu : {montant:,.2f} $ de {qui}\nCompte pro Mercury ({statut or 'reçu'})"):
+                elif pousser(f"🏦 Virement reçu\n{montant:,.2f} $ de {qui}\nCompte pro Mercury ({statut or 'reçu'})"):
                     vus.add(cle)
         except Exception as ex:
             print("Mercury illisible :", type(ex).__name__)
