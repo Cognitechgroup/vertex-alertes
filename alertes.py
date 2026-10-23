@@ -46,21 +46,24 @@ def pousser(msg, urgent=False):
         except Exception as ex:
             print("whatsapp KO", type(ex).__name__)
     if E("WA_CLOUD_TOKEN") and E("WA_CLOUD_PHONE_ID") and E("WA_TO"):
-        try:
-            modele = E("WA_TEMPLATE") or "alerte_vertex"
-            lignes = [l.strip() for l in msg.splitlines() if l.strip()]
-            if modele == "alerte_vertex":
-                champs = [" | ".join(lignes)[:900]]
-            else:
-                champs = [lignes[0][:200], (lignes[1] if len(lignes) > 1 else "-")[:300], (" / ".join(lignes[2:]) or "-")[:600]]
-            corps = {"messaging_product": "whatsapp", "to": E("WA_TO"), "type": "template",
-                     "template": {"name": modele, "language": {"code": E("WA_TEMPLATE_LANG") or "fr"},
-                     "components": [{"type": "body", "parameters": [{"type": "text", "text": c} for c in champs]}]}}
-            req = urllib.request.Request(f"https://graph.facebook.com/v21.0/{E('WA_CLOUD_PHONE_ID')}/messages", json.dumps(corps).encode(),
-                                         {"Authorization": "Bearer " + E("WA_CLOUD_TOKEN"), "Content-Type": "application/json"})
-            ok = ('"messages"' in urllib.request.urlopen(req, timeout=30).read().decode()) or ok
-        except Exception as ex:
-            print("whatsapp Meta KO", type(ex).__name__, getattr(ex, "code", ""))
+        lignes = [l.strip() for l in msg.splitlines() if l.strip()]
+        # modèle propre à 3 champs d'abord ; tant que Meta ne l'a pas approuvé, l'ancien modèle à 1 champ prend le relais
+        for modele in ([E("WA_TEMPLATE")] if E("WA_TEMPLATE") else ["alerte_vertex_v2", "alerte_vertex"]):
+            try:
+                if modele == "alerte_vertex":
+                    champs = [" | ".join(lignes)[:900]]
+                else:
+                    champs = [lignes[0][:200], (lignes[1] if len(lignes) > 1 else "-")[:300], (" / ".join(lignes[2:]) or "-")[:600]]
+                corps = {"messaging_product": "whatsapp", "to": E("WA_TO"), "type": "template",
+                         "template": {"name": modele, "language": {"code": E("WA_TEMPLATE_LANG") or "fr"},
+                         "components": [{"type": "body", "parameters": [{"type": "text", "text": c} for c in champs]}]}}
+                req = urllib.request.Request(f"https://graph.facebook.com/v21.0/{E('WA_CLOUD_PHONE_ID')}/messages", json.dumps(corps).encode(),
+                                             {"Authorization": "Bearer " + E("WA_CLOUD_TOKEN"), "Content-Type": "application/json"})
+                if '"messages"' in urllib.request.urlopen(req, timeout=30).read().decode():
+                    ok = True
+                    break
+            except Exception as ex:
+                print("whatsapp Meta KO", modele, type(ex).__name__, getattr(ex, "code", ""))
     return ok
 
 
