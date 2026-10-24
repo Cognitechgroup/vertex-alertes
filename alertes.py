@@ -1,8 +1,8 @@
 # Alertes Vertex, version nuage (tourne sur GitHub Actions toutes les 5 minutes, PC éteint ou allumé).
 # Stdlib seulement. Aucun nom de client n'est écrit dans le dépôt : les alertes partent seulement vers Ahmed (ntfy / Telegram / WhatsApp CallMeBot).
 #
-# 1. Formulaires d'onboarding finis : lecture SEULE de la boîte pro (IMAP, rien n'est marqué lu), mails « Formulaire de démarrage (...) ».
-# 2. Appels réservés : lecture de l'agenda pro via son adresse secrète au format iCal (ICAL_URL). Nouvel événement « Kickoff » ou avec invité externe.
+# 1. Brief reçu (formulaire d'onboarding envoyé) : lecture SEULE de la boîte pro (IMAP, rien n'est marqué lu), mails « Formulaire de démarrage (onboarding-<niche>) ».
+# 2. Call booké : lecture de l'agenda pro via son adresse secrète au format iCal (ICAL_URL). Nouvel événement « Kickoff » ou avec invité externe, organisé par l'agenda d'Ahmed (pas les calls qu'il réserve chez d'autres).
 # 3. Rappels : 1 h puis 15 min avant chaque appel (« Kickoff » ou « X Vertex Acquisition »), le 2e en priorité urgente.
 # Mémoire : state.json (restauré par le cache GitHub). Premier passage = on enregistre sans alerter (jamais de spam de l'historique).
 # Variables : MES_ADRESSES (adresses d'Ahmed, séparées par des virgules), MERCURY_TOKEN (jeton lecture seule), SMTP_HOST, SMTP_USER, SMTP_PASS, (IMAP_HOST, IMAP_PORT), ICAL_URL, NTFY_TOPIC, (TG_NOTIF_TOKEN, TG_NOTIF_CHAT), (WA_NOTIF_PHONE, WA_NOTIF_KEY).
@@ -14,6 +14,13 @@ ETAT = "state.json"
 MOI = {a.strip().lower() for a in os.environ.get("MES_ADRESSES", "").split(",") if a.strip()}
 SUJET = re.compile(r"^Formulaire de d[ée]marrage \((onboarding-[\w-]+)\) : (.+)$", re.S)  # toute niche future (onboarding-<niche>) est alertée sans toucher au code
 TEST = re.compile(r"\btest\b|ne pas traiter", re.I)
+ESSAI_ALERTES = re.compile(r"test alertes", re.I)  # faux client « TEST ALERTES … » : alerté quand même (contrôle de bout en bout), ignoré par tous les scripts du PC
+MUETS = {"onboarding-whatsapp-code", "onboarding-whatsapp-numero"}  # coupés le 24/10 sur ordre d'Ahmed : le code reste dans le mail et la fiche client
+# Ahmed (24/10/2026, « je t'ai toujours demandé 4 trucs ») : paiement reçu, contrat signé, brief reçu, call booké.
+
+
+def ignorer(nom):
+    return bool(TEST.search(nom)) and not ESSAI_ALERTES.search(nom)
 PARIS, BKK = ZoneInfo("Europe/Paris"), ZoneInfo("Asia/Bangkok")
 E = os.environ.get
 
@@ -95,7 +102,7 @@ def formulaires():
         msg = email.message_from_bytes(data[0][1])
         sujet = str(make_header(decode_header(msg.get("Subject", "")))).replace("\r", "").replace("\n", " ").strip()
         m = SUJET.match(sujet)
-        if not m or TEST.search(m.group(2)):
+        if not m or ignorer(m.group(2)):
             continue
         corps = ""
         for part in msg.walk():
@@ -117,15 +124,9 @@ def formulaires():
 
 
 def texte_onboarding(form, nom, champs):
-    """Texte de l'alerte pour un formulaire de démarrage. « onboarding-whatsapp-code » = le client a saisi son code WhatsApp (page de remerciement)."""
-    if form == "onboarding-whatsapp-code":
-        return f"🔑 Code WhatsApp reçu\n{nom} : {trouver(champs, 'code_whatsapp', 'code')}\nÀ saisir chez Meta pour activer ses alertes"
-    if form == "onboarding-whatsapp-numero":
-        return f"📱 Numéro WhatsApp à ajouter chez Meta\n{nom} : {trouver(champs, 'whatsapp', 'numero', 'phone')}\nAjoutez-le maintenant : le code arrive sur son WhatsApp pendant qu'il remplit la suite"
+    """Texte de l'alerte « Brief reçu » (formulaire de démarrage envoyé, toute niche)."""
     niche = {"onboarding-conciergerie": "Conciergerie", "onboarding-clinic": "Clinique"}.get(form,form.replace("onboarding-", "").replace("-", " ").capitalize())
-    code = trouver(champs, "code_whatsapp")  # le formulaire clinique a aussi la case du code
-    ligne_code = f"\n🔑 Code WhatsApp : {code} (à saisir chez Meta)" if code != "non renseigné" else ""
-    return f"📋 Onboarding client fini\n{nom} ({niche})\nTél : {trouver(champs, 'phone', 'téléphone', 'telephone', 'whatsapp', 'mobile')}\nEmail : {trouver(champs, 'email', 'mail')}{ligne_code}\nRéponses dans la boîte pro"
+    return f"📋 Brief reçu\n{nom} ({niche})\nTél : {trouver(champs, 'phone', 'téléphone', 'telephone', 'whatsapp', 'mobile')}\nEmail : {trouver(champs, 'email', 'mail')}\nRéponses dans la boîte pro"
 
 
 def trouver(champs, *mots):
@@ -156,7 +157,7 @@ def mails_evenements():
             sujet = " ".join(str(make_header(decode_header(msg.get("Subject", "")))).split())
             mid = msg.get("Message-ID", sujet + str(num))
             c = SUJET_CONTRAT.match(sujet)
-            if c and not TEST.search(c.group(1)):
+            if c and not ignorer(c.group(1)):
                 out.append((mid, "✅ Contrat signé\n" + c.group(1).strip() + "\nPaiement Stripe attendu"))
             elif "stripe.com" in msg.get("From", "").lower() and MONTANT.search(sujet) and re.search(r"re[çc]u|received|succe|r[ée]ussi|paid|pay[ée]", sujet, re.I):
                 pay = PAIEMENT.match(sujet)
@@ -169,6 +170,9 @@ def mails_evenements():
 def lire_ical(url):
     brut = urllib.request.urlopen(url, timeout=60).read().decode("utf-8", "replace")
     brut = re.sub(r"\r?\n[ \t]", "", brut)
+    proprio = re.search(r"^X-WR-CALNAME:(.+)$", brut, re.M)
+    proprio = proprio.group(1).strip().lower() if proprio else ""  # l'agenda Google porte l'adresse de son propriétaire
+    print("agenda : propriétaire", "reconnu" if "@" in proprio else "NON reconnu", "/ adresses d'Ahmed :", len(MOI))
     evts = []
     for bloc in re.findall(r"BEGIN:VEVENT(.*?)END:VEVENT", brut, re.S):
         if "RRULE" in bloc:
@@ -188,12 +192,16 @@ def lire_ical(url):
         if statut == "CANCELLED":
             continue
         invites = {m.lower() for m in re.findall(r"mailto:([^\r\n;]+)", "\n".join(re.findall(r"^ATTENDEE.*$", bloc, re.M)), re.I)}
-        evts.append({"uid": uid, "titre": resume.replace("\\,", ",").replace("\\n", " "), "debut": d, "externes": invites - MOI})
+        orga = re.search(r"^ORGANIZER[^\r\n]*?mailto:([^\r\n;]+)", bloc, re.M | re.I)
+        orga = orga.group(1).strip().lower() if orga else ""
+        evts.append({"uid": uid, "titre": resume.replace("\\,", ",").replace("\\n", " "), "debut": d,
+                     "externes": invites - MOI - {proprio}, "chez_moi": not orga or orga in MOI or orga == proprio})
     return evts
 
 
 def est_reservation(e):
-    return "X Vertex Acquisition" not in e["titre"] and ("kickoff" in e["titre"].lower() or bool(e["externes"]))
+    """Un client a réservé chez Ahmed. Les calls qu'Ahmed réserve chez quelqu'un d'autre (organisateur externe) ne comptent pas."""
+    return e.get("chez_moi", True) and "X Vertex Acquisition" not in e["titre"] and ("kickoff" in e["titre"].lower() or bool(e["externes"]))
 
 
 def est_appel(e):
@@ -318,8 +326,10 @@ def main():
             if premier and (maintenant - recu) > dt.timedelta(minutes=30):
                 vus.add(mid)
                 continue
-            txt = texte_onboarding(form, nom, champs)
-            if pousser(txt, urgent=form in ("onboarding-whatsapp-code", "onboarding-whatsapp-numero")):
+            if form in MUETS:
+                vus.add(mid)
+                continue
+            if pousser(texte_onboarding(form, nom, champs)):
                 vus.add(mid)
     except Exception as ex:
         print("boîte mail illisible :", type(ex).__name__)
@@ -348,7 +358,7 @@ def main():
                 if est_reservation(e) and cle not in vus:
                     if ical_premier:
                         vus.add(cle)
-                    elif pousser(f"📞 Appel réservé\n{', '.join(sorted(e['externes'])) or e['titre']}\n{hh(e['debut'])} / {e['titre']}"):
+                    elif pousser(f"📞 Call booké\n{', '.join(sorted(e['externes'])) or e['titre']}\n{hh(e['debut'])} / {e['titre']}"):
                         vus.add(cle)
                 if not est_appel(e):
                     continue
