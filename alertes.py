@@ -183,8 +183,6 @@ def lire_ical(url):
     print("agenda : propriétaire", "reconnu" if "@" in proprio else "NON reconnu", "/ adresses d'Ahmed :", len(MOI))
     evts = []
     for bloc in re.findall(r"BEGIN:VEVENT(.*?)END:VEVENT", brut, re.S):
-        if "RRULE" in bloc:
-            continue
         def val(nom):
             m = re.search(r"^" + nom + r"((?:;[^:\r\n]*)?):(.*)$", bloc, re.M)
             return (m.group(1), m.group(2).strip()) if m else ("", "")
@@ -202,14 +200,29 @@ def lire_ical(url):
         invites = {m.lower() for m in re.findall(r"mailto:([^\r\n;]+)", "\n".join(re.findall(r"^ATTENDEE.*$", bloc, re.M)), re.I)}
         orga = re.search(r"^ORGANIZER[^\r\n]*?mailto:([^\r\n;]+)", bloc, re.M | re.I)
         orga = orga.group(1).strip().lower() if orga else ""
-        evts.append({"uid": uid, "titre": resume.replace("\\,", ",").replace("\\n", " "), "debut": d,
-                     "externes": invites - MOI - {proprio}, "chez_moi": not orga or orga in MOI or orga == proprio})
+        base = {"uid": uid, "titre": resume.replace("\\,", ",").replace("\\n", " "), "debut": d,
+                "externes": invites - MOI - {proprio}, "chez_moi": not orga or orga in MOI or orga == proprio}
+        _, regle = val("RRULE")
+        if not regle:
+            evts.append(base)
+            continue
+        # événement répété (ex. Billions chaque jeudi) : seulement le rappel 5 min, jamais « call booké » ; répétition hebdomadaire seule gérée
+        r = dict(x.split("=", 1) for x in regle.split(";") if "=" in x)
+        if r.get("FREQ") != "WEEKLY":
+            continue
+        fin = dt.datetime.strptime(r["UNTIL"][:15], "%Y%m%dT%H%M%S").replace(tzinfo=dt.timezone.utc) if "UNTIL" in r and "T" in r["UNTIL"] else None
+        pas = dt.timedelta(weeks=int(r.get("INTERVAL", 1)))
+        maintenant, occ = dt.datetime.now(dt.timezone.utc), d
+        while occ < maintenant - dt.timedelta(hours=1):
+            occ += pas
+        if occ <= maintenant + dt.timedelta(days=3) and (not fin or occ <= fin):
+            evts.append(dict(base, uid=f"{uid}|{occ:%Y%m%d}", debut=occ, repete=True))
     return evts
 
 
 def est_reservation(e):
     """Un client a réservé chez Ahmed. Les calls qu'Ahmed réserve chez quelqu'un d'autre (organisateur externe) ne comptent pas."""
-    return e.get("chez_moi", True) and "X Vertex Acquisition" not in e["titre"] and ("kickoff" in e["titre"].lower() or bool(e["externes"]))
+    return not e.get("repete") and e.get("chez_moi", True) and "X Vertex Acquisition" not in e["titre"] and ("kickoff" in e["titre"].lower() or bool(e["externes"]))
 
 
 def est_appel(e):
