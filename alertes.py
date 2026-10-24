@@ -116,6 +116,14 @@ def formulaires():
     return out
 
 
+def texte_onboarding(form, nom, champs):
+    """Texte de l'alerte pour un formulaire de démarrage. « onboarding-whatsapp-code » = le client a saisi son code WhatsApp (page de remerciement)."""
+    if form == "onboarding-whatsapp-code":
+        return f"🔑 Code WhatsApp reçu\n{nom} : {trouver(champs, 'code_whatsapp', 'code')}\nÀ saisir chez Meta pour activer ses alertes"
+    niche = {"onboarding-conciergerie": "Conciergerie", "onboarding-clinic": "Clinique"}.get(form, form.replace("onboarding-", "").replace("-", " ").capitalize())
+    return f"📋 Onboarding client fini\n{nom} ({niche})\nTél : {trouver(champs, 'phone', 'téléphone', 'telephone', 'whatsapp', 'mobile')}\nEmail : {trouver(champs, 'email', 'mail')}\nRéponses dans la boîte pro"
+
+
 def trouver(champs, *mots):
     for k, v in champs.items():
         if any(w in k for w in mots) and v:
@@ -306,9 +314,8 @@ def main():
             if premier and (maintenant - recu) > dt.timedelta(minutes=30):
                 vus.add(mid)
                 continue
-            niche = {"onboarding-conciergerie": "Conciergerie", "onboarding-clinic": "Clinique"}.get(form, form.replace("onboarding-", "").replace("-", " ").capitalize())
-            txt = f"📋 Onboarding client fini\n{nom} ({niche})\nTél : {trouver(champs, 'phone', 'téléphone', 'telephone', 'whatsapp', 'mobile')}\nEmail : {trouver(champs, 'email', 'mail')}\nRéponses dans la boîte pro"
-            if pousser(txt):
+            txt = texte_onboarding(form, nom, champs)
+            if pousser(txt, urgent=form == "onboarding-whatsapp-code"):
                 vus.add(mid)
     except Exception as ex:
         print("boîte mail illisible :", type(ex).__name__)
