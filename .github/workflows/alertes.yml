@@ -37,6 +37,8 @@ jobs:
           TG_NOTIF_CHAT: ${{ secrets.TG_NOTIF_CHAT }}
           WA_NOTIF_PHONE: ${{ secrets.WA_NOTIF_PHONE }}
           WA_NOTIF_KEY: ${{ secrets.WA_NOTIF_KEY }}
+          LEADS_CLIENTS: ${{ secrets.LEADS_CLIENTS }}
+          META_LEADS_TOKEN: ${{ secrets.META_LEADS_TOKEN }}
         run: python alertes.py
       - uses: actions/cache/save@v4
         if: always()
