@@ -215,7 +215,8 @@ def est_reservation(e):
 def est_appel(e):
     if ESSAI_ALERTES.search(e["titre"]):  # réservation d'essai : alertée une fois (call booké), jamais de rappel 1 h / 15 min
         return False
-    return"kickoff" in e["titre"].lower() or "X Vertex Acquisition" in e["titre"] or bool(e["externes"])
+    # Ahmed (24/10) : « juste un appel call dans 5 min, peu importe le call dans mon agenda » : tout événement titré, sauf les blocs « Busy »
+    return bool(e["titre"].strip()) and e["titre"].strip().lower() != "busy"
 
 
 # ---------- virements (Mercury, jeton LECTURE SEULE) ----------
@@ -311,7 +312,7 @@ def leads_clients(vus, init, maintenant, api=api_meta, envoyer=envoyer_wa, preve
                     livre = bool(c.get("wa")) and envoyer(str(c["wa"]), texte, c.get("lang", "fr"))
                     titre = texte.splitlines()[0]
                     if livre:
-                        if c.get("copie_ahmed", True):
+                        if c.get("copie_ahmed", False):  # copie à Ahmed coupée le 24/10 (« non pas celui-là »)
                             prevenir(texte.replace(titre, f"{titre} · {nom}", 1))
                     else:
                         prevenir(f"⚠️ Lead pour {nom} NON livré sur son WhatsApp\n" + texte.replace(titre + "\n", "", 1))
@@ -373,17 +374,15 @@ def main():
                 if not est_appel(e):
                     continue
                 reste = (e["debut"] - maintenant).total_seconds() / 60
-                for minutes, lo, hi, urgent in ((60, 40, 80, False), (15, 2, 22, True)):
-                    k = f"{e['uid']}|{minutes}"
-                    if lo <= reste <= hi and k not in rappels:
-                        txt = (f"⏰ Appel dans {minutes} min\n{e['titre']}\n{hh(e['debut'])}" if urgent else f"⏰ Appel dans 1 h\n{e['titre']}\n{hh(e['debut'])}")
-                        if pousser(txt, urgent):
-                            rappels.add(k)
+                k = f"{e['uid']}|5"
+                if 0 <= reste <= 9 and k not in rappels:  # un seul rappel « dans 5 min » (le contrôle passe toutes les 5 min)
+                    if pousser(f"⏰ Call dans 5 min\n{e['titre']}\n{hh(e['debut'])}", True):
+                        rappels.add(k)
         except Exception as ex:
             print("agenda illisible :", type(ex).__name__)
 
     # virements reçus
-    if E("MERCURY_TOKEN"):
+    if E("MERCURY_TOKEN") and E("ALERTE_MERCURY"):  # coupé par Ahmed le 24/10 (« pas la peine ») ; ALERTE_MERCURY=1 pour le remettre
         mercury_premier = premier or not etat.get("mercury")
         try:
             for tid, montant, qui, statut in entrees_mercury():
