@@ -6,7 +6,7 @@
 # 3. Rappels : 1 h puis 15 min avant chaque appel (« Kickoff » ou « X Vertex Acquisition »), le 2e en priorité urgente.
 # Mémoire : state.json (restauré par le cache GitHub). Premier passage = on enregistre sans alerter (jamais de spam de l'historique).
 # Variables : MES_ADRESSES (adresses d'Ahmed, séparées par des virgules), MERCURY_TOKEN (jeton lecture seule), SMTP_HOST, SMTP_USER, SMTP_PASS, (IMAP_HOST, IMAP_PORT), ICAL_URL, NTFY_TOPIC, (TG_NOTIF_TOKEN, TG_NOTIF_CHAT), (WA_NOTIF_PHONE, WA_NOTIF_KEY).
-import datetime as dt, email, imaplib, json, os, re, sys, unicodedata, urllib.parse, urllib.request
+import datetime as dt, email, imaplib, json, os, re, sys, unicodedata, urllib.error, urllib.parse, urllib.request
 from email.header import decode_header, make_header
 from zoneinfo import ZoneInfo
 
@@ -45,26 +45,37 @@ def pousser(msg, urgent=False):
             ok = (bool(re.search(r"queued|sent", rep, re.I)) and not re.search(r"error|invalid", rep, re.I)) or ok
         except Exception as ex:
             print("whatsapp KO", type(ex).__name__)
-    if E("WA_CLOUD_TOKEN") and E("WA_CLOUD_PHONE_ID") and E("WA_TO"):
-        lignes = [l.strip() for l in msg.splitlines() if l.strip()]
-        # modèle propre à 3 champs d'abord ; tant que Meta ne l'a pas approuvé, l'ancien modèle à 1 champ prend le relais
-        for modele in ([E("WA_TEMPLATE")] if E("WA_TEMPLATE") else ["alerte_vertex_v2", "alerte_vertex"]):
-            try:
-                if modele == "alerte_vertex":
-                    champs = [" | ".join(lignes)[:900]]
-                else:
-                    champs = [lignes[0][:200], (lignes[1] if len(lignes) > 1 else "-")[:300], (" / ".join(lignes[2:]) or "-")[:600]]
-                corps = {"messaging_product": "whatsapp", "to": E("WA_TO"), "type": "template",
-                         "template": {"name": modele, "language": {"code": E("WA_TEMPLATE_LANG") or "fr"},
-                         "components": [{"type": "body", "parameters": [{"type": "text", "text": c} for c in champs]}]}}
-                req = urllib.request.Request(f"https://graph.facebook.com/v21.0/{E('WA_CLOUD_PHONE_ID')}/messages", json.dumps(corps).encode(),
-                                             {"Authorization": "Bearer " + E("WA_CLOUD_TOKEN"), "Content-Type": "application/json"})
-                if '"messages"' in urllib.request.urlopen(req, timeout=30).read().decode():
-                    ok = True
-                    break
-            except Exception as ex:
-                print("whatsapp Meta KO", modele, type(ex).__name__, getattr(ex, "code", ""))
+    if envoyer_wa(E("WA_TO"), msg):
+        ok = True
     return ok
+
+
+def envoyer_wa(to, msg, lang="fr"):
+    """WhatsApp officiel (Cloud API, modèle approuvé) vers `to` (chiffres avec indicatif, sans +). True si Meta accepte le message."""
+    if not (E("WA_CLOUD_TOKEN") and E("WA_CLOUD_PHONE_ID") and to):
+        return False
+    lignes = [l.strip() for l in msg.splitlines() if l.strip()]
+    if lang == "en":
+        modeles = [(E("WA_TEMPLATE_EN") or "alerte_vertex_v2_en", "en_US")]
+    else:
+        # modèle propre à 3 champs d'abord ; tant que Meta ne l'a pas approuvé, l'ancien modèle à 1 champ prend le relais
+        modeles = [(m, E("WA_TEMPLATE_LANG") or "fr") for m in ([E("WA_TEMPLATE")] if E("WA_TEMPLATE") else ["alerte_vertex_v2", "alerte_vertex"])]
+    for modele, code in modeles:
+        try:
+            if modele == "alerte_vertex":
+                champs = [" | ".join(lignes)[:900]]
+            else:
+                champs = [lignes[0][:200], (lignes[1] if len(lignes) > 1 else "-")[:300], (" / ".join(lignes[2:]) or "-")[:600]]
+            corps = {"messaging_product": "whatsapp", "to": to, "type": "template",
+                     "template": {"name": modele, "language": {"code": code},
+                     "components": [{"type": "body", "parameters": [{"type": "text", "text": c} for c in champs]}]}}
+            req = urllib.request.Request(f"https://graph.facebook.com/v21.0/{E('WA_CLOUD_PHONE_ID')}/messages", json.dumps(corps).encode(),
+                                         {"Authorization": "Bearer " + E("WA_CLOUD_TOKEN"), "Content-Type": "application/json"})
+            if '"messages"' in urllib.request.urlopen(req, timeout=30).read().decode():
+                return True
+        except Exception as ex:
+            print("whatsapp Meta KO", modele, type(ex).__name__, getattr(ex, "code", ""))
+    return False
 
 
 def hh(d):
@@ -195,6 +206,88 @@ def entrees_mercury():
             for t in trs if float(t.get("amount", 0)) > 0 and t.get("status") != "failed"]
 
 
+# ---------- leads Meta des clients (alerte sur le WhatsApp du client) ----------
+# Secret LEADS_CLIENTS = liste JSON : [{"nom": "Enjoy Nice", "page_id": "123", "wa": "33612345678", "lang": "fr", "token": "(facultatif, sinon META_LEADS_TOKEN)", "copie_ahmed": true}]
+META = "https://graph.facebook.com/v21.0"
+CLES_BASE = {"full_name", "first_name", "last_name", "phone_number", "phone", "email"}
+
+
+def api_meta(chemin, token, **params):
+    params["access_token"] = token
+    return json.loads(urllib.request.urlopen(f"{META}/{chemin}?" + urllib.parse.urlencode(params), timeout=30).read().decode("utf-8"))
+
+
+def tel_international(brut):
+    """+33612345678 depuis « 06 12 34 56 78 », « p:+33612345678 » ou « 33612345678 » ; None si illisible."""
+    t = re.sub(r"[^\d+]", "", (brut or "").replace("p:", ""))
+    if t.startswith("00"):
+        t = "+" + t[2:]
+    ch = t[1:] if t.startswith("+") else ("33" + t[1:] if t.startswith("0") and len(t) == 10 else t)
+    return "+" + ch if 8 <= len(ch) <= 15 else None
+
+
+def texte_lead(client, lead):
+    champs = {f.get("name", "").lower(): " ".join(f.get("values", [])).strip() for f in lead.get("field_data", [])}
+    nom = champs.get("full_name") or " ".join(x for x in (champs.get("first_name"), champs.get("last_name")) if x) or "nom non renseigné"
+    brut = champs.get("phone_number") or champs.get("phone") or ""
+    tel = tel_international(brut) or brut or "téléphone non renseigné"
+    autres = [f"{k.replace('_', ' ')} : {v}" for k, v in champs.items() if v and k not in CLES_BASE]
+    en = client.get("lang") == "en"
+    lignes = ["🔔 New lead" if en else "🔔 Nouveau lead", f"{nom}, {tel}"]
+    if champs.get("email"):
+        lignes.append(champs["email"])
+    lignes += autres[:4]
+    lignes.append("Call back within 5 minutes" if en else "Rappelez-le en moins de 5 minutes")
+    return "\n".join(lignes)
+
+
+def leads_clients(vus, init, maintenant, api=api_meta, envoyer=envoyer_wa, prevenir=pousser):
+    """Lit les nouveaux leads des formulaires Meta de chaque client et prévient son WhatsApp (copie sur les canaux d'Ahmed).
+    Premier passage d'un client : les leads de plus de 30 min sont notés sans alerte. Un lead est noté vu après UNE tentative ; un échec de livraison au client prévient Ahmed une fois."""
+    try:
+        clients = json.loads(E("LEADS_CLIENTS") or "[]")
+    except ValueError:
+        print("LEADS_CLIENTS illisible")
+        return
+    for c in clients:
+        pid, nom = str(c.get("page_id", "")), c.get("nom", "client")
+        token = c.get("token") or E("META_LEADS_TOKEN")
+        if not (pid and token):
+            print("lead client sans page ou sans jeton :", nom)
+            continue
+        premier = pid not in init
+        try:
+            try:
+                forms = api(f"{pid}/leadgen_forms", token, fields="id,name", limit=50).get("data", [])
+            except urllib.error.HTTPError:
+                token = api(pid, token, fields="access_token")["access_token"]  # jeton de Page tiré du jeton système
+                forms = api(f"{pid}/leadgen_forms", token, fields="id,name", limit=50).get("data", [])
+            for f in forms:
+                for lead in api(f"{f['id']}/leads", token, fields="id,created_time,field_data", limit=25).get("data", []):
+                    cle = "lead|" + str(lead["id"])
+                    if cle in vus:
+                        continue
+                    try:
+                        cree = dt.datetime.strptime(lead["created_time"][:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=dt.timezone.utc)
+                    except (KeyError, ValueError):
+                        cree = maintenant
+                    if premier and (maintenant - cree) > dt.timedelta(minutes=30):
+                        vus.add(cle)
+                        continue
+                    texte = texte_lead(c, lead)
+                    livre = bool(c.get("wa")) and envoyer(str(c["wa"]), texte, c.get("lang", "fr"))
+                    titre = texte.splitlines()[0]
+                    if livre:
+                        if c.get("copie_ahmed", True):
+                            prevenir(texte.replace(titre, f"{titre} · {nom}", 1))
+                    else:
+                        prevenir(f"⚠️ Lead pour {nom} NON livré sur son WhatsApp\n" + texte.replace(titre + "\n", "", 1))
+                    vus.add(cle)
+            init.add(pid)
+        except Exception as ex:
+            print("leads illisibles pour", nom, type(ex).__name__, getattr(ex, "code", ""))
+
+
 def main():
     etat = json.load(open(ETAT, encoding="utf-8")) if os.path.exists(ETAT) else {}
     premier = not etat
@@ -270,7 +363,14 @@ def main():
         except Exception as ex:
             print("Mercury illisible :", type(ex).__name__)
 
-    json.dump({"vus": sorted(vus)[-500:], "rappels": sorted(rappels)[-500:], "ical": bool(E("ICAL_URL")) or bool(etat.get("ical")), "mercury": bool(E("MERCURY_TOKEN")) or bool(etat.get("mercury")), "evt": True}, open(ETAT, "w", encoding="utf-8"))
+    # leads des formulaires Meta de chaque client
+    init = set(etat.get("leads_init", []))
+    try:
+        leads_clients(vus, init, maintenant)
+    except Exception as ex:
+        print("leads clients KO :", type(ex).__name__)
+
+    json.dump({"leads_init": sorted(init), "vus": sorted(vus)[-2000:], "rappels": sorted(rappels)[-500:],"ical": bool(E("ICAL_URL")) or bool(etat.get("ical")), "mercury": bool(E("MERCURY_TOKEN")) or bool(etat.get("mercury")), "evt": True}, open(ETAT, "w", encoding="utf-8"))
     print("OK", "(premier passage, rien alerté)" if premier else "")
 
 
