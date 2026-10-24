@@ -197,7 +197,7 @@ def lire_ical(url):
         d = dt.datetime.strptime(ds[:15], "%Y%m%dT%H%M%S")
         d = d.replace(tzinfo=dt.timezone.utc) if ds.endswith("Z") else d.replace(tzinfo=ZoneInfo(tz.group(1)) if tz else PARIS)
         _, statut = val("STATUS")
-        if statut == "CANCELLED":
+        if statut == "CANCELLED" or re.match(r"(canceled|cancelled|annul[ée]+)\s*:", resume, re.I):  # Calendly garde l'événement annulé, titre « Canceled: … »
             continue
         invites = {m.lower() for m in re.findall(r"mailto:([^\r\n;]+)", "\n".join(re.findall(r"^ATTENDEE.*$", bloc, re.M)), re.I)}
         orga = re.search(r"^ORGANIZER[^\r\n]*?mailto:([^\r\n;]+)", bloc, re.M | re.I)
