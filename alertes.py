@@ -213,7 +213,9 @@ def est_reservation(e):
 
 
 def est_appel(e):
-    return "kickoff" in e["titre"].lower() or "X Vertex Acquisition" in e["titre"] or bool(e["externes"])
+    if ESSAI_ALERTES.search(e["titre"]):  # réservation d'essai : alertée une fois (call booké), jamais de rappel 1 h / 15 min
+        return False
+    return"kickoff" in e["titre"].lower() or "X Vertex Acquisition" in e["titre"] or bool(e["externes"])
 
 
 # ---------- virements (Mercury, jeton LECTURE SEULE) ----------
