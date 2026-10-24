@@ -65,7 +65,7 @@ def envoyer_wa(to, msg, lang="fr"):
             if modele == "alerte_vertex":
                 champs = [" | ".join(lignes)[:900]]
             else:
-                champs = [lignes[0][:200], (lignes[1] if len(lignes) > 1 else "-")[:300], (" / ".join(lignes[2:]) or "-")[:600]]
+                champs = [lignes[0][:200], (lignes[1] if len(lignes) > 1 else "-")[:300], (" / ".join(lignes[2:]) or "-")[:900]]
             corps = {"messaging_product": "whatsapp", "to": to, "type": "template",
                      "template": {"name": modele, "language": {"code": code},
                      "components": [{"type": "body", "parameters": [{"type": "text", "text": c} for c in champs]}]}}
@@ -231,14 +231,17 @@ def texte_lead(client, lead):
     nom = champs.get("full_name") or " ".join(x for x in (champs.get("first_name"), champs.get("last_name")) if x) or "nom non renseigné"
     brut = champs.get("phone_number") or champs.get("phone") or ""
     tel = tel_international(brut) or brut or "téléphone non renseigné"
-    autres = [f"{k.replace('_', ' ')} : {v}" for k, v in champs.items() if v and k not in CLES_BASE]
+    # toutes les réponses du formulaire, lues comme dans LeadFactory : « ma_question » devient « Ma question », « plus_de_10 » devient « plus de 10 »
+    reponses = []
+    for k, v in champs.items():
+        if v and k not in CLES_BASE:
+            q = re.sub(r"\s+", " ", k.replace("_", " ")).strip()
+            reponses.append(f"{q[:1].upper() + q[1:]} : {v.replace('_', ' ')}")
     en = client.get("lang") == "en"
     lignes = ["🔔 New lead" if en else "🔔 Nouveau lead", f"{nom}, {tel}"]
     if champs.get("email"):
         lignes.append(champs["email"])
-    lignes += autres[:4]
-    lignes.append("Call back within 5 minutes" if en else "Rappelez-le en moins de 5 minutes")
-    return "\n".join(lignes)
+    return "\n".join(lignes + reponses)
 
 
 def leads_clients(vus, init, maintenant, api=api_meta, envoyer=envoyer_wa, prevenir=pousser):
