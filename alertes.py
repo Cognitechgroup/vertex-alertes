@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 ETAT = "state.json"
 MOI = {a.strip().lower() for a in os.environ.get("MES_ADRESSES", "").split(",") if a.strip()}
-SUJET = re.compile(r"^Formulaire de d[ée]marrage \((onboarding-(?:conciergerie|clinic))\) : (.+)$", re.S)
+SUJET = re.compile(r"^Formulaire de d[ée]marrage \((onboarding-[\w-]+)\) : (.+)$", re.S)  # toute niche future (onboarding-<niche>) est alertée sans toucher au code
 TEST = re.compile(r"\btest\b|ne pas traiter", re.I)
 PARIS, BKK = ZoneInfo("Europe/Paris"), ZoneInfo("Asia/Bangkok")
 E = os.environ.get
@@ -115,7 +115,7 @@ def trouver(champs, *mots):
 # ---------- paiements Stripe et contrats signés (mails reçus sur la boîte pro) ----------
 MONTANT = re.compile(r"\d[\d   .,]*\s?(?:€|\$|EUR|USD)|(?:€|\$)\s?\d[\d.,]*")
 PAIEMENT = re.compile(r"^Paiement de (.+?) effectu[ée] par (.+?) en faveur", re.S)
-SUJET_CONTRAT = re.compile(r"^Contrat(?: conciergerie)? accept[ée] en ligne : (.+)$", re.S)
+SUJET_CONTRAT = re.compile(r"^Contrat(?: [\w -]+?)? accept[ée] en ligne : (.+)$", re.S)  # « Contrat accepté », « Contrat conciergerie accepté », « Contrat <niche> accepté »
 
 
 def mails_evenements():
@@ -210,7 +210,7 @@ def main():
             if premier and (maintenant - recu) > dt.timedelta(minutes=30):
                 vus.add(mid)
                 continue
-            niche = "Conciergerie" if form == "onboarding-conciergerie" else "Clinique"
+            niche = {"onboarding-conciergerie": "Conciergerie", "onboarding-clinic": "Clinique"}.get(form, form.replace("onboarding-", "").replace("-", " ").capitalize())
             txt = f"📋 Onboarding client fini\n{nom} ({niche})\nTél : {trouver(champs, 'phone', 'téléphone', 'telephone', 'whatsapp', 'mobile')}\nEmail : {trouver(champs, 'email', 'mail')}\nRéponses dans la boîte pro"
             if pousser(txt):
                 vus.add(mid)
