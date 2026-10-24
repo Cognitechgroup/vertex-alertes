@@ -121,7 +121,9 @@ def texte_onboarding(form, nom, champs):
     if form == "onboarding-whatsapp-code":
         return f"🔑 Code WhatsApp reçu\n{nom} : {trouver(champs, 'code_whatsapp', 'code')}\nÀ saisir chez Meta pour activer ses alertes"
     niche = {"onboarding-conciergerie": "Conciergerie", "onboarding-clinic": "Clinique"}.get(form, form.replace("onboarding-", "").replace("-", " ").capitalize())
-    return f"📋 Onboarding client fini\n{nom} ({niche})\nTél : {trouver(champs, 'phone', 'téléphone', 'telephone', 'whatsapp', 'mobile')}\nEmail : {trouver(champs, 'email', 'mail')}\nRéponses dans la boîte pro"
+    code = trouver(champs, "code_whatsapp")  # le formulaire clinique a aussi la case du code
+    ligne_code = f"\n🔑 Code WhatsApp : {code} (à saisir chez Meta)" if code != "non renseigné" else ""
+    return f"📋 Onboarding client fini\n{nom} ({niche})\nTél : {trouver(champs, 'phone', 'téléphone', 'telephone', 'whatsapp', 'mobile')}\nEmail : {trouver(champs, 'email', 'mail')}{ligne_code}\nRéponses dans la boîte pro"
 
 
 def trouver(champs, *mots):
