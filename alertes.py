@@ -120,7 +120,9 @@ def texte_onboarding(form, nom, champs):
     """Texte de l'alerte pour un formulaire de démarrage. « onboarding-whatsapp-code » = le client a saisi son code WhatsApp (page de remerciement)."""
     if form == "onboarding-whatsapp-code":
         return f"🔑 Code WhatsApp reçu\n{nom} : {trouver(champs, 'code_whatsapp', 'code')}\nÀ saisir chez Meta pour activer ses alertes"
-    niche = {"onboarding-conciergerie": "Conciergerie", "onboarding-clinic": "Clinique"}.get(form, form.replace("onboarding-", "").replace("-", " ").capitalize())
+    if form == "onboarding-whatsapp-numero":
+        return f"📱 Numéro WhatsApp à ajouter chez Meta\n{nom} : {trouver(champs, 'whatsapp', 'numero', 'phone')}\nAjoutez-le maintenant : le code arrive sur son WhatsApp pendant qu'il remplit la suite"
+    niche = {"onboarding-conciergerie": "Conciergerie", "onboarding-clinic": "Clinique"}.get(form,form.replace("onboarding-", "").replace("-", " ").capitalize())
     code = trouver(champs, "code_whatsapp")  # le formulaire clinique a aussi la case du code
     ligne_code = f"\n🔑 Code WhatsApp : {code} (à saisir chez Meta)" if code != "non renseigné" else ""
     return f"📋 Onboarding client fini\n{nom} ({niche})\nTél : {trouver(champs, 'phone', 'téléphone', 'telephone', 'whatsapp', 'mobile')}\nEmail : {trouver(champs, 'email', 'mail')}{ligne_code}\nRéponses dans la boîte pro"
@@ -317,7 +319,7 @@ def main():
                 vus.add(mid)
                 continue
             txt = texte_onboarding(form, nom, champs)
-            if pousser(txt, urgent=form == "onboarding-whatsapp-code"):
+            if pousser(txt, urgent=form in ("onboarding-whatsapp-code", "onboarding-whatsapp-numero")):
                 vus.add(mid)
     except Exception as ex:
         print("boîte mail illisible :", type(ex).__name__)
