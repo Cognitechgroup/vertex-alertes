@@ -152,16 +152,24 @@ def mails_evenements():
     for crit in (("FROM", "stripe.com"), ("SUBJECT", '"accept"')):
         _, d = M.search(None, "SINCE", depuis, *crit)
         for num in d[0].split():
-            _, data = M.fetch(num, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM MESSAGE-ID)])")
+            _, data = M.fetch(num, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM MESSAGE-ID DATE)])")
             msg = email.message_from_bytes(data[0][1])
             sujet = " ".join(str(make_header(decode_header(msg.get("Subject", "")))).split())
             mid = msg.get("Message-ID", sujet + str(num))
+            try:
+                vieux = dt.datetime.now(dt.timezone.utc) - email.utils.parsedate_to_datetime(msg.get("Date")) > dt.timedelta(hours=12)
+            except Exception:
+                vieux = False
+            if vieux:  # mail de plus de 12 h jamais alerté (ex. paiement de Nicolas du 22/10 avant la correction) : noté vu, pas d'alerte en retard
+                out.append((mid, None))
+                continue
             c = SUJET_CONTRAT.match(sujet)
             if c and not ignorer(c.group(1)):
                 out.append((mid, "✅ Contrat signé\n" + c.group(1).strip() + "\nPaiement Stripe attendu"))
-            elif "stripe.com" in msg.get("From", "").lower() and MONTANT.search(sujet) and re.search(r"re[çc]u|received|succe|r[ée]ussi|paid|pay[ée]", sujet, re.I):
+            # vrai sujet Stripe (Nicolas, 22/10) : « Paiement de 750,00 € effectué par … en faveur de … » (« effectué » n'était pas reconnu : alerte jamais partie)
+            elif "stripe.com" in msg.get("From", "").lower() and MONTANT.search(sujet) and (PAIEMENT.match(sujet) or re.search(r"re[çc]u|received|succe|r[ée]ussi|paid|pay[ée]|effectu", sujet, re.I)):
                 pay = PAIEMENT.match(sujet)
-                out.append((mid, "💰 Paiement reçu\n" + (f"{pay.group(1).strip()} de {pay.group(2).strip()}" if pay else MONTANT.search(sujet).group(0).strip()) + "\n" + sujet))
+                out.append((mid, "💰 Paiement reçu\n" + (f"{pay.group(1).strip()} de {pay.group(2).strip()}" if pay else MONTANT.search(sujet).group(0).strip()) + "\nStripe"))
     M.logout()
     return out
 
@@ -339,7 +347,7 @@ def main():
         for mid, txt in mails_evenements():
             if mid in vus:
                 continue
-            if premier or not etat.get("evt"):
+            if premier or not etat.get("evt") or txt is None:
                 vus.add(mid)
             elif pousser(txt, urgent=txt.startswith("💰")):
                 vus.add(mid)
