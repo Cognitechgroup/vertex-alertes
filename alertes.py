@@ -21,7 +21,8 @@ MUETS = {"onboarding-whatsapp-code", "onboarding-whatsapp-numero"}  # coupés le
 
 def ignorer(nom):
     return bool(TEST.search(nom)) and not ESSAI_ALERTES.search(nom)
-PARIS, BKK = ZoneInfo("Europe/Paris"), ZoneInfo("Asia/Bangkok")
+PARIS = ZoneInfo("Europe/Paris")
+LOCAL = ZoneInfo(os.environ.get("ALERTE_TZ") or "Asia/Bangkok")  # heure du pays où est Ahmed (Chine à partir du 01/11 : ALERTE_TZ=Asia/Shanghai)
 E = os.environ.get
 
 
@@ -86,7 +87,7 @@ def envoyer_wa(to, msg, lang="fr"):
 
 
 def hh(d):
-    return f"{d.astimezone(PARIS):%a %d/%m %H:%M} Paris = {d.astimezone(BKK):%H:%M} Bangkok"
+    return f"{d.astimezone(LOCAL):%a %d/%m %H:%M}"
 
 
 # ---------- formulaires ----------
