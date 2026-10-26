@@ -49,7 +49,7 @@ jobs:
         with:
           path: state.json
           key: state-${{ github.run_id }}
-      - name: Relancer la boucle suivante (26/10/2026 : le nuage tourne seul, sans PC ni planificateur GitHub)
+      - name: Relancer la boucle suivante (le nuage tourne seul, sans PC ni planificateur GitHub, 26/10/2026)
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
