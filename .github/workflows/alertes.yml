@@ -48,7 +48,7 @@ jobs:
           TEST_RAPPEL_MIN: ${{ inputs.essai_rappel_min }}
           LEADS_CLIENTS: ${{ secrets.LEADS_CLIENTS }}
           META_LEADS_TOKEN: ${{ secrets.META_LEADS_TOKEN }}
-        run: python alertes.py
+        run: python -u alertes.py
       - uses: actions/cache/save@v4
         if: always()
         with:
