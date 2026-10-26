@@ -3,7 +3,7 @@
 #
 # 1. Brief reçu (formulaire d'onboarding envoyé) : lecture SEULE de la boîte pro (IMAP, rien n'est marqué lu), mails « Formulaire de démarrage (onboarding-<niche>) ».
 # 2. Call booké : lecture de l'agenda pro via son adresse secrète au format iCal (ICAL_URL). Nouvel événement « Kickoff » ou avec invité externe, organisé par l'agenda d'Ahmed (pas les calls qu'il réserve chez d'autres).
-# 3. Rappels : 1 h puis 15 min avant chaque appel (« Kickoff » ou « X Vertex Acquisition »), le 2e en priorité urgente.
+# 3. Rappel « Call dans 5 min » avant chaque événement titré de l'agenda. Boucle d'une heure à la minute (BOUCLE_MIN), qui se relance seule : le PC en veille ne coupe plus rien (cause du 26/10/2026, call Johnny sans alerte).
 # Mémoire : state.json (restauré par le cache GitHub). Premier passage = on enregistre sans alerter (jamais de spam de l'historique).
 # Variables : MES_ADRESSES (adresses d'Ahmed, séparées par des virgules), MERCURY_TOKEN (jeton lecture seule), SMTP_HOST, SMTP_USER, SMTP_PASS, (IMAP_HOST, IMAP_PORT), ICAL_URL, NTFY_TOPIC, (TG_NOTIF_TOKEN, TG_NOTIF_CHAT), (WA_NOTIF_PHONE, WA_NOTIF_KEY).
 import datetime as dt, email, imaplib, json, os, re, sys, time, unicodedata, urllib.error, urllib.parse, urllib.request
