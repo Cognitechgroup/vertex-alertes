@@ -55,7 +55,7 @@ jobs:
           path: state.json
           key: state-${{ github.run_id }}
       - name: Relancer la boucle suivante (le nuage tourne seul, sans PC ni planificateur GitHub, 26/10/2026)
-        if: always()
+        if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run alertes.yml --repo ${{ github.repository }}
