@@ -6,7 +6,7 @@
 # 3. Rappels : 1 h puis 15 min avant chaque appel (« Kickoff » ou « X Vertex Acquisition »), le 2e en priorité urgente.
 # Mémoire : state.json (restauré par le cache GitHub). Premier passage = on enregistre sans alerter (jamais de spam de l'historique).
 # Variables : MES_ADRESSES (adresses d'Ahmed, séparées par des virgules), MERCURY_TOKEN (jeton lecture seule), SMTP_HOST, SMTP_USER, SMTP_PASS, (IMAP_HOST, IMAP_PORT), ICAL_URL, NTFY_TOPIC, (TG_NOTIF_TOKEN, TG_NOTIF_CHAT), (WA_NOTIF_PHONE, WA_NOTIF_KEY).
-import datetime as dt, email, imaplib, json, os, re, sys, unicodedata, urllib.error, urllib.parse, urllib.request
+import datetime as dt, email, imaplib, json, os, re, sys, time, unicodedata, urllib.error, urllib.parse, urllib.request
 from email.header import decode_header, make_header
 from zoneinfo import ZoneInfo
 
@@ -336,7 +336,8 @@ def leads_clients(vus, init, maintenant, api=api_meta, envoyer=envoyer_wa, preve
             print("leads illisibles pour", nom, type(ex).__name__, getattr(ex, "code", ""))
 
 
-def main():
+def main(complet=True, rattrapage=True, boucle=False):
+    """Un passage. complet=False : seulement l'agenda (passage à la minute). rattrapage : fenêtre large (9 min) pour ne rien perdre au redémarrage."""
     etat = json.load(open(ETAT, encoding="utf-8")) if os.path.exists(ETAT) else {}
     premier = not etat
     vus = set(etat.get("vus", []))
@@ -345,7 +346,7 @@ def main():
 
     # formulaires
     try:
-        for mid, form, nom, champs, recu in formulaires():
+        for mid, form, nom, champs, recu in (formulaires() if complet else []):
             if mid in vus:
                 continue
             if premier and (maintenant - recu) > dt.timedelta(minutes=30):
@@ -361,7 +362,7 @@ def main():
 
     # paiements Stripe + contrats signés
     try:
-        for mid, txt in mails_evenements():
+        for mid, txt in (mails_evenements() if complet else []):
             if mid in vus:
                 continue
             if premier or not etat.get("evt") or txt is None:
@@ -389,14 +390,16 @@ def main():
                     continue
                 reste = (e["debut"] - maintenant).total_seconds() / 60
                 k = f"{e['uid']}|5"
-                if 0 <= reste <= 9 and k not in rappels:  # un seul rappel « dans 5 min » (le contrôle passe toutes les 5 min)
-                    if pousser(f"⏰ Call dans 5 min\n{e['titre']}\n{hh(e['debut'])}", True):
+                # un seul rappel par appel. En boucle (passage à la minute) : à 5 min ; au 1er passage d'une boucle ou en passage isolé : jusqu'à 9 min (rien de perdu)
+                seuil = 5.5 if (boucle and not rattrapage) else 9
+                if 0 <= reste <= seuil and k not in rappels:
+                    if pousser(f"⏰ Call dans {max(1, round(reste))} min\n{e['titre']}\n{hh(e['debut'])}", True):
                         rappels.add(k)
         except Exception as ex:
             print("agenda illisible :", type(ex).__name__)
 
     # virements reçus
-    if E("MERCURY_TOKEN") and E("ALERTE_MERCURY"):  # coupé par Ahmed le 24/10 (« pas la peine ») ; ALERTE_MERCURY=1 pour le remettre
+    if complet and E("MERCURY_TOKEN") and E("ALERTE_MERCURY"):  # coupé par Ahmed le 24/10 (« pas la peine ») ; ALERTE_MERCURY=1 pour le remettre
         mercury_premier = premier or not etat.get("mercury")
         try:
             for tid, montant, qui, statut in entrees_mercury():
@@ -413,7 +416,8 @@ def main():
     # leads des formulaires Meta de chaque client
     init = set(etat.get("leads_init", []))
     try:
-        leads_clients(vus, init, maintenant)
+        if complet:
+            leads_clients(vus, init, maintenant)
     except Exception as ex:
         print("leads clients KO :", type(ex).__name__)
 
@@ -421,5 +425,25 @@ def main():
     print("OK", "(premier passage, rien alerté)" if premier else "")
 
 
+def boucle(duree_min):
+    """Passage à la minute pendant duree_min (le PC d'Ahmed peut dormir, le nuage ne dort pas) : agenda chaque minute, le reste toutes les 5 min.
+    Cause du 26/10/2026 : le déclenchement venait du PC (en veille) et le planificateur de GitHub n'a passé qu'une fois en 3 h, le rappel du call de 20 h 30 est tombé dans le trou."""
+    fin = time.time() + duree_min * 60
+    i = 0
+    while True:
+        debut = time.time()
+        try:
+            main(complet=(i % 5 == 0), rattrapage=(i == 0), boucle=True)
+        except Exception as ex:
+            print("passage KO :", type(ex).__name__)
+        i += 1
+        if time.time() + 60 > fin:
+            break
+        time.sleep(max(1, 60 - (time.time() - debut)))
+
+
 if __name__ == "__main__":
-    main()
+    if E("BOUCLE_MIN"):
+        boucle(float(E("BOUCLE_MIN")))
+    else:
+        main()
