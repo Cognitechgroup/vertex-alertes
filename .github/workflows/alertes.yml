@@ -2,7 +2,11 @@ name: alertes
 on:
   schedule:
     - cron: "*/5 * * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      essai_rappel_min:
+        description: "Faux appel dans N minutes pour tester le rappel"
+        required: false
 concurrency:
   group: alertes
   cancel-in-progress: false
@@ -41,6 +45,7 @@ jobs:
           WA_NOTIF_PHONE: ${{ secrets.WA_NOTIF_PHONE }}
           WA_NOTIF_KEY: ${{ secrets.WA_NOTIF_KEY }}
           BOUCLE_MIN: "57"
+          TEST_RAPPEL_MIN: ${{ inputs.essai_rappel_min }}
           LEADS_CLIENTS: ${{ secrets.LEADS_CLIENTS }}
           META_LEADS_TOKEN: ${{ secrets.META_LEADS_TOKEN }}
         run: python alertes.py
