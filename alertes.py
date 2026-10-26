@@ -377,6 +377,8 @@ def main(complet=True, rattrapage=True, boucle=False):
         ical_premier = premier or not etat.get("ical")
         try:
             evts = lire_ical(E("ICAL_URL"))
+            if E("TEST_RAPPEL_MIN"):  # essai de bout en bout (26/10/2026) : faux appel dans N min, titre sans « test alertes » pour que le rappel parte
+                evts.append({"uid": "essai-rappel", "titre": "ESSAI rappel call (a ignorer)", "debut": dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=float(E("TEST_RAPPEL_MIN"))), "externes": set(), "chez_moi": False})
             for e in evts:
                 if e["debut"] < maintenant - dt.timedelta(hours=1):
                     continue
