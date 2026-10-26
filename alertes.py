@@ -397,6 +397,9 @@ def main(complet=True, rattrapage=True, boucle=False):
                 if 0 <= reste <= seuil and k not in rappels:
                     if pousser(f"⏰ Call dans {max(1, round(reste))} min\n{e['titre']}\n{hh(e['debut'])}", True):
                         rappels.add(k)
+                        print(f"RAPPEL livré {dt.datetime.now(dt.timezone.utc):%H:%M:%S} UTC, appel dans {reste:.1f} min")
+                    else:
+                        print("RAPPEL NON LIVRÉ, nouvel essai au prochain passage")
         except Exception as ex:
             print("agenda illisible :", type(ex).__name__)
 
