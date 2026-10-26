@@ -9,7 +9,10 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 65
+    permissions:
+      contents: read
+      actions: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -37,6 +40,7 @@ jobs:
           TG_NOTIF_CHAT: ${{ secrets.TG_NOTIF_CHAT }}
           WA_NOTIF_PHONE: ${{ secrets.WA_NOTIF_PHONE }}
           WA_NOTIF_KEY: ${{ secrets.WA_NOTIF_KEY }}
+          BOUCLE_MIN: "57"
           LEADS_CLIENTS: ${{ secrets.LEADS_CLIENTS }}
           META_LEADS_TOKEN: ${{ secrets.META_LEADS_TOKEN }}
         run: python alertes.py
@@ -45,6 +49,11 @@ jobs:
         with:
           path: state.json
           key: state-${{ github.run_id }}
+      - name: Relancer la boucle suivante (26/10/2026 : le nuage tourne seul, sans PC ni planificateur GitHub)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run alertes.yml --repo ${{ github.repository }}
   garder-actif:
     runs-on: ubuntu-latest
     permissions:
